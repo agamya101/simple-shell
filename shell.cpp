@@ -4,8 +4,8 @@
 #include <sstream>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <fcntl.h>
 
-// Parse input string into a list of tokens
 std::vector<std::string> parseInput(const std::string& input) {
     std::vector<std::string> args;
     std::istringstream iss(input);
@@ -14,7 +14,6 @@ std::vector<std::string> parseInput(const std::string& input) {
     return args;
 }
 
-// Convert vector<string> to char* array for execvp
 std::vector<char*> toCArgs(std::vector<std::string>& args) {
     std::vector<char*> c_args;
     for (auto& s : args) c_args.push_back(s.data());
@@ -22,30 +21,98 @@ std::vector<char*> toCArgs(std::vector<std::string>& args) {
     return c_args;
 }
 
-// Built-in: cd
 void changeDirectory(const std::vector<std::string>& args) {
-    if (args.size() < 2) {
-        std::cerr << "cd: missing argument\n";
-        return;
-    }
-    if (chdir(args[1].c_str()) != 0) {
-        perror("cd");
-    }
+    if (args.size() < 2) { std::cerr << "cd: missing argument\n"; return; }
+    if (chdir(args[1].c_str()) != 0) perror("cd");
 }
 
-// Run external command using fork + exec (core OS concept)
 void runExternal(std::vector<std::string>& args) {
-    pid_t pid = fork(); // create child process
+    pid_t pid = fork();
     if (pid < 0) {
         perror("fork failed");
     } else if (pid == 0) {
-        // Inside child process
         auto c_args = toCArgs(args);
-        execvp(c_args[0], c_args.data()); // replace child with command
+        execvp(c_args[0], c_args.data());
         perror("command not found");
         exit(1);
     } else {
-        // Inside parent process — wait for child to finish
+        waitpid(pid, nullptr, 0);
+    }
+}
+
+// Split command into two parts around the | symbol
+bool hasPipe(const std::string& input, std::string& left, std::string& right) {
+    size_t pos = input.find('|');
+    if (pos == std::string::npos) return false;
+    left = input.substr(0, pos);
+    right = input.substr(pos + 1);
+    return true;
+}
+
+// Run two commands connected by a pipe (IPC concept)
+void runPipe(const std::string& left, const std::string& right) {
+    int pipefd[2];
+    pipe(pipefd); // pipefd[0] = read end, pipefd[1] = write end
+
+    auto leftArgs  = parseInput(left);
+    auto rightArgs = parseInput(right);
+
+    // Left command — writes into pipe
+    pid_t pid1 = fork();
+    if (pid1 == 0) {
+        dup2(pipefd[1], STDOUT_FILENO); // redirect stdout to pipe write end
+        close(pipefd[0]);
+        close(pipefd[1]);
+        auto c = toCArgs(leftArgs);
+        execvp(c[0], c.data());
+        perror("command not found");
+        exit(1);
+    }
+
+    // Right command — reads from pipe
+    pid_t pid2 = fork();
+    if (pid2 == 0) {
+        dup2(pipefd[0], STDIN_FILENO); // redirect stdin to pipe read end
+        close(pipefd[1]);
+        close(pipefd[0]);
+        auto c = toCArgs(rightArgs);
+        execvp(c[0], c.data());
+        perror("command not found");
+        exit(1);
+    }
+
+    close(pipefd[0]);
+    close(pipefd[1]);
+    waitpid(pid1, nullptr, 0);
+    waitpid(pid2, nullptr, 0);
+}
+
+// Handle output (>) and input (<) redirection
+void runRedirect(std::vector<std::string>& args) {
+    int infd = -1, outfd = -1;
+    std::vector<std::string> cleanArgs;
+
+    for (size_t i = 0; i < args.size(); i++) {
+        if (args[i] == ">" && i + 1 < args.size()) {
+            outfd = open(args[++i].c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        } else if (args[i] == "<" && i + 1 < args.size()) {
+            infd = open(args[++i].c_str(), O_RDONLY);
+        } else {
+            cleanArgs.push_back(args[i]);
+        }
+    }
+
+    pid_t pid = fork();
+    if (pid == 0) {
+        if (outfd != -1) { dup2(outfd, STDOUT_FILENO); close(outfd); }
+        if (infd  != -1) { dup2(infd,  STDIN_FILENO);  close(infd);  }
+        auto c = toCArgs(cleanArgs);
+        execvp(c[0], c.data());
+        perror("command not found");
+        exit(1);
+    } else {
+        if (outfd != -1) close(outfd);
+        if (infd  != -1) close(infd);
         waitpid(pid, nullptr, 0);
     }
 }
@@ -57,18 +124,29 @@ int main() {
     while (true) {
         std::cout << "myshell> ";
         std::cout.flush();
-
         if (!std::getline(std::cin, input)) break;
         if (input.empty()) continue;
 
         history.push_back(input);
+        std::string left, right;
+
+        // Check for pipe first
+        if (hasPipe(input, left, right)) {
+            runPipe(left, right);
+            continue;
+        }
 
         std::vector<std::string> args = parseInput(input);
         if (args.empty()) continue;
 
+        // Check for redirection
+        bool hasRedirect = false;
+        for (auto& a : args) if (a == ">" || a == "<") { hasRedirect = true; break; }
+        if (hasRedirect) { runRedirect(args); continue; }
+
+        // Built-ins
         if (args[0] == "exit") {
-            std::cout << "Goodbye!\n";
-            break;
+            std::cout << "Goodbye!\n"; break;
         } else if (args[0] == "cd") {
             changeDirectory(args);
         } else if (args[0] == "pwd") {
@@ -81,12 +159,11 @@ int main() {
             for (size_t i = 0; i < history.size(); i++)
                 std::cout << i + 1 << "  " << history[i] << "\n";
         } else if (args[0] == "help") {
-            std::cout << "Built-in commands: cd, pwd, echo, history, help, exit\n";
-            std::cout << "Any other command runs as an external program.\n";
+            std::cout << "Built-ins: cd, pwd, echo, history, help, exit\n";
+            std::cout << "Supports: pipes (|) and redirection (> and <)\n";
         } else {
             runExternal(args);
         }
     }
-
     return 0;
 }

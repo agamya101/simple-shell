@@ -2,11 +2,16 @@
 #include <string>
 #include <vector>
 #include <sstream>
+#include <fstream>
 #include <unistd.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <signal.h>
 
 using namespace std;
+
+// ── History file path ──────────────────────────────────────────────────────
+const string HISTORY_FILE = string(getenv("HOME")) + "/.myshell_history";
 
 vector<string> parseInput(const string& input) {
     vector<string> args;
@@ -28,11 +33,44 @@ void changeDirectory(const vector<string>& args) {
     if (chdir(args[1].c_str()) != 0) perror("cd");
 }
 
+// ── Custom prompt: shows current directory ─────────────────────────────────
+void printPrompt() {
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd))) {
+        string path(cwd);
+        // Show only last folder name to keep it short
+        size_t pos = path.rfind('/');
+        string folder = (pos != string::npos) ? path.substr(pos + 1) : path;
+        if (folder.empty()) folder = "/";
+        cout << "\033[1;32mmyshell\033[0m:\033[1;34m" << folder << "\033[0m$ ";
+    } else {
+        cout << "myshell> ";
+    }
+    cout.flush();
+}
+
+// ── Save history to file ───────────────────────────────────────────────────
+void saveHistory(const vector<string>& history) {
+    ofstream f(HISTORY_FILE);
+    for (auto& cmd : history) f << cmd << "\n";
+}
+
+// ── Load history from file ─────────────────────────────────────────────────
+vector<string> loadHistory() {
+    vector<string> history;
+    ifstream f(HISTORY_FILE);
+    string line;
+    while (getline(f, line)) if (!line.empty()) history.push_back(line);
+    return history;
+}
+
 void runExternal(vector<string>& args, bool background) {
     pid_t pid = fork();
     if (pid < 0) {
         perror("fork failed");
     } else if (pid == 0) {
+        // Child restores default Ctrl+C behaviour
+        signal(SIGINT, SIG_DFL);
         auto c_args = toCArgs(args);
         execvp(c_args[0], c_args.data());
         perror("command not found");
@@ -62,6 +100,7 @@ void runPipe(const string& left, const string& right) {
 
     pid_t pid1 = fork();
     if (pid1 == 0) {
+        signal(SIGINT, SIG_DFL);
         dup2(pipefd[1], STDOUT_FILENO);
         close(pipefd[0]); close(pipefd[1]);
         auto c = toCArgs(leftArgs);
@@ -71,6 +110,7 @@ void runPipe(const string& left, const string& right) {
 
     pid_t pid2 = fork();
     if (pid2 == 0) {
+        signal(SIGINT, SIG_DFL);
         dup2(pipefd[0], STDIN_FILENO);
         close(pipefd[1]); close(pipefd[0]);
         auto c = toCArgs(rightArgs);
@@ -95,6 +135,7 @@ void runRedirect(vector<string>& args) {
     }
     pid_t pid = fork();
     if (pid == 0) {
+        signal(SIGINT, SIG_DFL);
         if (outfd != -1) { dup2(outfd, STDOUT_FILENO); close(outfd); }
         if (infd  != -1) { dup2(infd,  STDIN_FILENO);  close(infd);  }
         auto c = toCArgs(cleanArgs);
@@ -108,14 +149,30 @@ void runRedirect(vector<string>& args) {
 }
 
 int main() {
+    // ── Signal handling: parent ignores Ctrl+C ─────────────────────────────
+    signal(SIGINT, SIG_IGN);
+
     string input;
-    vector<string> history;
+    vector<string> history = loadHistory(); // load previous session history
 
     while (true) {
-        cout << "myshell> ";
-        cout.flush();
-        if (!getline(cin, input)) break;
+        printPrompt();
+
+        if (!getline(cin, input)) {
+            cout << "\n";
+            break;
+        }
         if (input.empty()) continue;
+
+        // ── !! repeats last command ────────────────────────────────────────
+        if (input == "!!") {
+            if (history.empty()) {
+                cout << "No commands in history.\n";
+                continue;
+            }
+            input = history.back();
+            cout << input << "\n"; // show what's being run
+        }
 
         history.push_back(input);
 
@@ -136,6 +193,7 @@ int main() {
         if (hasRedirect) { runRedirect(args); continue; }
 
         if (args[0] == "exit") {
+            saveHistory(history);
             cout << "Goodbye!\n"; break;
         } else if (args[0] == "cd") {
             changeDirectory(args);
@@ -150,7 +208,7 @@ int main() {
                 cout << i + 1 << "  " << history[i] << "\n";
         } else if (args[0] == "help") {
             cout << "Built-ins: cd, pwd, echo, history, help, exit\n";
-            cout << "Features: pipes (|), redirection (> <), background (&)\n";
+            cout << "Features: pipes (|), redirection (> <), background (&), !! repeats last command\n";
         } else {
             runExternal(args, background);
         }

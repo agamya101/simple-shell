@@ -6,27 +6,29 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 
-std::vector<std::string> parseInput(const std::string& input) {
-    std::vector<std::string> args;
-    std::istringstream iss(input);
-    std::string token;
+using namespace std;
+
+vector<string> parseInput(const string& input) {
+    vector<string> args;
+    istringstream iss(input);
+    string token;
     while (iss >> token) args.push_back(token);
     return args;
 }
 
-std::vector<char*> toCArgs(std::vector<std::string>& args) {
-    std::vector<char*> c_args;
+vector<char*> toCArgs(vector<string>& args) {
+    vector<char*> c_args;
     for (auto& s : args) c_args.push_back(s.data());
     c_args.push_back(nullptr);
     return c_args;
 }
 
-void changeDirectory(const std::vector<std::string>& args) {
-    if (args.size() < 2) { std::cerr << "cd: missing argument\n"; return; }
+void changeDirectory(const vector<string>& args) {
+    if (args.size() < 2) { cerr << "cd: missing argument\n"; return; }
     if (chdir(args[1].c_str()) != 0) perror("cd");
 }
 
-void runExternal(std::vector<std::string>& args, bool background) {
+void runExternal(vector<string>& args, bool background) {
     pid_t pid = fork();
     if (pid < 0) {
         perror("fork failed");
@@ -37,23 +39,22 @@ void runExternal(std::vector<std::string>& args, bool background) {
         exit(1);
     } else {
         if (background) {
-            // Don't wait — let it run in background
-            std::cout << "[Process running in background, PID: " << pid << "]\n";
+            cout << "[Process running in background, PID: " << pid << "]\n";
         } else {
             waitpid(pid, nullptr, 0);
         }
     }
 }
 
-bool hasPipe(const std::string& input, std::string& left, std::string& right) {
+bool hasPipe(const string& input, string& left, string& right) {
     size_t pos = input.find('|');
-    if (pos == std::string::npos) return false;
+    if (pos == string::npos) return false;
     left = input.substr(0, pos);
     right = input.substr(pos + 1);
     return true;
 }
 
-void runPipe(const std::string& left, const std::string& right) {
+void runPipe(const string& left, const string& right) {
     int pipefd[2];
     pipe(pipefd);
     auto leftArgs  = parseInput(left);
@@ -82,9 +83,9 @@ void runPipe(const std::string& left, const std::string& right) {
     waitpid(pid2, nullptr, 0);
 }
 
-void runRedirect(std::vector<std::string>& args) {
+void runRedirect(vector<string>& args) {
     int infd = -1, outfd = -1;
-    std::vector<std::string> cleanArgs;
+    vector<string> cleanArgs;
     for (size_t i = 0; i < args.size(); i++) {
         if (args[i] == ">" && i + 1 < args.size())
             outfd = open(args[++i].c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
@@ -107,28 +108,27 @@ void runRedirect(std::vector<std::string>& args) {
 }
 
 int main() {
-    std::string input;
-    std::vector<std::string> history;
+    string input;
+    vector<string> history;
 
     while (true) {
-        std::cout << "myshell> ";
-        std::cout.flush();
-        if (!std::getline(std::cin, input)) break;
+        cout << "myshell> ";
+        cout.flush();
+        if (!getline(cin, input)) break;
         if (input.empty()) continue;
 
         history.push_back(input);
 
-        // Check for background process
         bool background = false;
         if (!input.empty() && input.back() == '&') {
             background = true;
             input.pop_back();
         }
 
-        std::string left, right;
+        string left, right;
         if (hasPipe(input, left, right)) { runPipe(left, right); continue; }
 
-        std::vector<std::string> args = parseInput(input);
+        vector<string> args = parseInput(input);
         if (args.empty()) continue;
 
         bool hasRedirect = false;
@@ -136,21 +136,21 @@ int main() {
         if (hasRedirect) { runRedirect(args); continue; }
 
         if (args[0] == "exit") {
-            std::cout << "Goodbye!\n"; break;
+            cout << "Goodbye!\n"; break;
         } else if (args[0] == "cd") {
             changeDirectory(args);
         } else if (args[0] == "pwd") {
             char cwd[1024];
-            if (getcwd(cwd, sizeof(cwd))) std::cout << cwd << "\n";
+            if (getcwd(cwd, sizeof(cwd))) cout << cwd << "\n";
         } else if (args[0] == "echo") {
             for (size_t i = 1; i < args.size(); i++)
-                std::cout << args[i] << (i + 1 < args.size() ? " " : "\n");
+                cout << args[i] << (i + 1 < args.size() ? " " : "\n");
         } else if (args[0] == "history") {
             for (size_t i = 0; i < history.size(); i++)
-                std::cout << i + 1 << "  " << history[i] << "\n";
+                cout << i + 1 << "  " << history[i] << "\n";
         } else if (args[0] == "help") {
-            std::cout << "Built-ins: cd, pwd, echo, history, help, exit\n";
-            std::cout << "Features: pipes (|), redirection (> <), background (&)\n";
+            cout << "Built-ins: cd, pwd, echo, history, help, exit\n";
+            cout << "Features: pipes (|), redirection (> <), background (&)\n";
         } else {
             runExternal(args, background);
         }

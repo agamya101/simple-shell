@@ -54,6 +54,25 @@ myshell> bg %1                           # resume in background
 
 ---
 
+## Web Interface
+
+A browser front-end that runs the **real `myshell` binary** inside a pseudo-terminal (pty), so `Ctrl+C`, `Ctrl+Z`, `tcsetpgrp`, `fg` and `bg` behave exactly as in a normal terminal.
+
+```bash
+pip install -r web/requirements.txt
+python3 web/server.py          # compiles shell.cpp if needed
+# open http://localhost:8080
+```
+
+- **Terminal** — full xterm.js terminal connected to `./myshell` over a WebSocket
+- **Live processes** — reads `/proc` every 0.5 s and shows each process's PID, PGID, state (running / stopped / zombie) and which process group currently owns the terminal
+- **Demo steps** — one-click commands for built-ins, redirection, pipes, signals, job control, reaping and history, each with a short explanation of the OS concept involved
+- **Ctrl+C / Ctrl+Z buttons** and **Restart shell**
+
+The server listens on `127.0.0.1` only. Anyone who can reach the port gets a shell, so do not expose it publicly. The live process panel needs Linux (`/proc`). On GitHub Codespaces, open the forwarded port 8080 and keep it private.
+
+---
+
 ## Architecture
 
 The shell follows a **REPL loop** (Read → Evaluate → Print → Loop):
@@ -163,7 +182,11 @@ Standard shell tutorials implement only basic `fork`/`exec`/`wait`. This project
 
 ```
 simple-shell/
-├── shell.cpp        # complete shell implementation
+├── shell.cpp              # complete shell implementation
+├── web/
+│   ├── server.py          # runs myshell in a pty, WebSocket + /proc process monitor
+│   ├── requirements.txt
+│   └── static/            # index.html, style.css, app.js (xterm.js front-end)
 └── README.md
 ```
 

@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>myshell — Web Terminal</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="logo">$_</span>
+      <div>
+        <h1>myshell</h1>
+        <p>Unix-like shell with job control · C++ · fork / exec / pipe / signals</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <span id="status" class="status"><span class="dot"></span><span id="status-text">connecting…</span></span>
+      <button id="btn-ctrlc" class="key" title="Send SIGINT to the foreground job">Ctrl+C</button>
+      <button id="btn-ctrlz" class="key" title="Send SIGTSTP to the foreground job">Ctrl+Z</button>
+      <button id="btn-restart" class="ghost">Restart shell</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="terminal-panel">
+      <div class="panel-title">
+        <span class="lights"><i></i><i></i><i></i></span>
+        <span>terminal — ./myshell (running in a pseudo-terminal)</span>
+      </div>
+      <div id="terminal"></div>
+      <div id="explain" class="explain hidden">
+        <div class="explain-head"><span id="explain-title"></span><button id="explain-close" aria-label="Close">×</button></div>
+        <div id="explain-body"></div>
+      </div>
+    </section>
+
+    <aside>
+      <section class="card">
+        <h2>Live processes</h2>
+        <p class="owner" id="owner">Terminal owner: —</p>
+        <table class="procs">
+          <thead><tr><th>PID</th><th>PGID</th><th>State</th><th>Command</th></tr></thead>
+          <tbody id="procs"><tr><td colspan="4" class="muted">waiting for shell…</td></tr></tbody>
+        </table>
+        <div class="legend">
+          <span><b class="st st-run">R/S</b> running / sleeping</span>
+          <span><b class="st st-stop">T</b> stopped</span>
+          <span><b class="st st-zombie">Z</b> zombie</span>
+          <span><b class="fg-badge">FG</b> owns terminal</span>
+        </div>
+      </section>
+
+      <section class="card demo">
+        <h2>Demo steps</h2>
+        <p class="muted small">Click a step to type it into the shell and see which OS concept it shows.</p>
+        <div id="steps"></div>
+      </section>
+    </aside>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
